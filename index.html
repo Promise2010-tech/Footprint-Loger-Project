@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Footprint Logger</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        select, input, button { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
+        button { background-color: #28a745; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #218838; }
+        .log-item { background: #f4f4f4; padding: 10px; margin-bottom: 5px; border-radius: 4px; }
+        canvas { margin-top: 20px; }
+        #insights-section { margin-top: 30px; padding: 15px; background: #e9ecef; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h2>Carbon Footprint Logger</h2>
+
+    <div class="form-group">
+        <label>Activity Category:</label>
+        <select id="category">
+            <option value="Transport">Transport (Car, Bus, Flight)</option>
+            <option value="Food">Food (Meat, Dairy)</option>
+            <option value="Energy">Energy (Electricity, Heating)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>CO₂ Value (kg):</label>
+        <input type="number" id="co2" placeholder="Enter estimated CO₂ emissions">
+    </div>
+
+    <button onclick="addLog()">Log Activity</button>
+
+    <h3>Total Emissions: <span id="total">0</span> kg CO₂</h3>
+    
+    <div class="form-group">
+        <label>Filter Logs by Category:</label>
+        <select id="filter" onchange="renderLogs()">
+            <option value="All">All Categories</option>
+            <option value="Transport">Transport</option>
+            <option value="Food">Food</option>
+            <option value="Energy">Energy</option>
+        </select>
+    </div>
+
+    <div id="logs"></div>
+
+    <canvas id="emissionChart"></canvas>
+
+    <div id="insights-section">
+        <h3>Insight Engine 💡</h3>
+        <p><strong>Highest Emission Area:</strong> <span id="highest-category">None</span></p>
+        <p><strong>Personalized Tip:</strong> <span id="personal-tip">Log activities to get tips!</span></p>
+        <p><strong>Weekly Goal:</strong> Keep emissions under 50 kg CO₂.</p>
+        <progress id="goal-progress" value="0" max="50" style="width: 100%;"></progress>
+        <p id="goal-status">0 / 50 kg</p>
+    </div>
+
+    <script>
+        let logs = JSON.parse(localStorage.getItem('footprintLogs')) || [];
+        let chartInstance = null;
+
+        function addLog() {
+            const category = document.getElementById('category').value;
+            const co2 = parseFloat(document.getElementById('co2').value);
+            
+            if (!co2 || co2 <= 0) {
+                alert("Please enter a valid CO₂ value.");
+                return;
+            }
+            
+            logs.push({ category, co2, date: new Date().toLocaleDateString() });
+            localStorage.setItem('footprintLogs', JSON.stringify(logs));
+            document.getElementById('co2').value = '';
+            
+            renderLogs();
+            updateChart();
+            generateInsights();
+        }
+
+        function renderLogs() {
+            const filter = document.getElementById('filter').value;
+            const filteredLogs = filter === 'All' ? logs : logs.filter(l => l.category === filter);
+            
+            const logsContainer = document.getElementById('logs');
+            logsContainer.innerHTML = filteredLogs.map(l => 
+                `<div class="log-item"><strong>${l.date}</strong> - ${l.category}: ${l.co2} kg</div>`
+            ).join('');
+            
+            const total = filteredLogs.reduce((sum, l) => sum + l.co2, 0);
+            document.getElementById('total').innerText = total.toFixed(2);
+        }
+
+        function updateChart() {
+            const totals = { Transport: 0, Food: 0, Energy: 0 };
+            logs.forEach(l => {
+                if (totals[l.category] !== undefined) {
+                    totals[l.category] += l.co2;
+                }
+            });
+            
+            const ctx = document.getElementById('emissionChart').getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(totals),
+                    datasets: [{
+                        label: 'CO₂ Emissions (kg)',
+                        data: Object.values(totals),
+                        backgroundColor: ['#007bff', '#dc3545', '#ffc107']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function generateInsights() {
+            if (logs.length === 0) return;
+
+            // Find Highest Category
+            const totals = { Transport: 0, Food: 0, Energy: 0 };
+            logs.forEach(l => {
+                if (totals[l.category] !== undefined) totals[l.category] += l.co2;
+            });
+
+            let highestCategory = 'None';
+            let maxCo2 = -1;
+            for (const [cat, val] of Object.entries(totals)) {
+                if (val > maxCo2) {
+                    highestCategory = cat;
+                    maxCo2 = val;
+                }
+            }
+            document.getElementById('highest-category').innerText = highestCategory;
+
+            // Personalized Tips
+            const tips = {
+                Transport: "Tip: Consider carpooling, taking public transit, or biking.",
+                Food: "Tip: Try a 'Meatless Monday' or eat locally sourced produce.",
+                Energy: "Tip: Unplug appliances when not in use and switch to LED bulbs."
+            };
+            document.getElementById('personal-tip').innerText = tips[highestCategory] || "Keep logging!";
+
+            // Weekly Goal Tracking
+            const totalEmissions = logs.reduce((sum, l) => sum + l.co2, 0);
+            document.getElementById('goal-progress').value = totalEmissions;
+            
+            let statusText = `${totalEmissions.toFixed(2)} / 50 kg CO₂`;
+            if (totalEmissions > 50) {
+                statusText += " <strong style='color:red;'>(Goal Exceeded!)</strong>";
+            }
+            document.getElementById('goal-status').innerHTML = statusText;
+        }
+
+        // Initialize on load
+        renderLogs();
+        updateChart();
+        generateInsights();
+    </script>
+</body>
+</html>
